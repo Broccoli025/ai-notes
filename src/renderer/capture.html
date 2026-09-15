@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>快速收藏</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="capture">
+    <div class="capture-header drag">⚡ 快速收藏</div>
+    <div class="meta-form">
+      <input id="f-title" class="title-input" placeholder="标题（留空则取内容第一行）" />
+      <div class="meta-row">
+        <label>来源</label>
+        <select id="f-source" class="field">
+          <option value="claude">Claude</option>
+          <option value="gpt">GPT</option>
+          <option value="gemini">Gemini</option>
+          <option value="other">其他</option>
+        </select>
+        <label style="width:auto">标签</label>
+        <input id="f-tags" class="field grow" placeholder="逗号或空格分隔" />
+      </div>
+      <div class="meta-row">
+        <label>对话</label>
+        <input id="f-conversation" class="field grow" placeholder="对话标题（自动读取前台窗口）" />
+      </div>
+      <div class="meta-row">
+        <label>链接</label>
+        <input id="f-url" class="field grow" placeholder="可选：网页版自动读取；桌面版可在应用里「分享 → 复制链接」后粘贴" />
+      </div>
+    </div>
+    <textarea id="f-content" class="content" placeholder="剪贴板为空，请粘贴内容…"></textarea>
+    <label class="check-row"><input type="checkbox" id="f-task" /> ⏳ 记录为进行中的任务，限额恢复（约 <span id="limit-hours">5</span> 小时）后提醒我</label>
+    <div class="capture-footer">
+      <span class="status" id="status"></span>
+      <button class="btn small hidden" id="btn-grant" title="打开系统设置 → 辅助功能">去授权</button>
+      <div class="spacer"></div>
+      <button class="btn" id="btn-cancel">取消 <kbd>esc</kbd></button>
+      <button class="btn primary" id="btn-save">保存 <kbd>⌘↩</kbd></button>
+    </div>
+  </div>
+  <script src="capture.js"></script>
+</body>
+</html>

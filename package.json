@@ -1,0 +1,44 @@
+{
+  "name": "ai-notes",
+  "productName": "AI Notes",
+  "version": "1.0.0",
+  "description": "记录 AI 对话中有用内容的本地笔记工具",
+  "main": "src/main/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac --dir",
+    "dist:dmg": "electron-builder --mac dmg"
+  },
+  "build": {
+    "appId": "com.local.ainotes",
+    "productName": "AI Notes",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.icns",
+      "target": [
+        "dir"
+      ],
+      "identity": null
+    }
+  },
+  "dependencies": {
+    "docx": "^9.7.1",
+    "dompurify": "^3.4.15",
+    "gray-matter": "^4.0.3",
+    "highlight.js": "^11.12.0",
+    "marked": "^18.0.13"
+  },
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  }
+}

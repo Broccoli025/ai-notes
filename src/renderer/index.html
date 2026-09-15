@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;" />
+  <title>AI Notes</title>
+  <link rel="stylesheet" href="../../node_modules/highlight.js/styles/github.css" media="(prefers-color-scheme: light)" />
+  <link rel="stylesheet" href="../../node_modules/highlight.js/styles/github-dark.css" media="(prefers-color-scheme: dark)" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 侧栏 -->
+    <aside class="sidebar drag">
+      <div class="sidebar-scroll no-drag">
+        <div class="section-title">笔记</div>
+        <div id="nav-all" class="nav-item active" data-filter="all"><span>📚</span><span class="label">全部</span><span class="count" id="count-all"></span></div>
+        <div class="section-title">任务</div>
+        <div id="nav-tasks"></div>
+        <div class="section-title">来源</div>
+        <div id="nav-sources"></div>
+        <div class="section-title">标签</div>
+        <div id="nav-tags"></div>
+      </div>
+      <div class="sidebar-footer">
+        <button class="btn small block" id="btn-capture" title="从剪贴板快速收藏（⌘⇧S）">⚡ 快速收藏</button>
+        <button class="btn small icon" id="btn-settings" title="设置（⌘,）">⚙︎</button>
+      </div>
+    </aside>
+
+    <!-- 列表 -->
+    <section class="list-pane">
+      <div class="list-header drag">
+        <input id="search" class="search no-drag" type="search" placeholder="搜索标题、内容、标签…" />
+        <button class="btn icon no-drag" id="btn-new" title="新建笔记（⌘N）">＋</button>
+        <button class="btn icon no-drag" id="btn-new-task" title="新建任务记录（⌘⇧T）">⏳</button>
+      </div>
+      <div id="list" class="list"></div>
+    </section>
+
+    <!-- 编辑区 -->
+    <section class="editor-pane">
+      <div id="editor-empty" class="empty drag" style="padding-top: 200px;">
+        选择左侧一条笔记，或按 <kbd>⌘N</kbd> 新建<br />
+        在浏览器复制内容后按 <kbd>⌘⇧S</kbd> 可一键收藏
+      </div>
+      <div id="editor" class="hidden" style="display: flex; flex-direction: column; height: 100%;">
+        <div class="editor-toolbar drag">
+          <div class="segmented no-drag">
+            <button id="mode-edit">编辑</button>
+            <button id="mode-preview" class="active">预览</button>
+          </div>
+          <span class="status" id="status"></span>
+          <div class="spacer"></div>
+          <button class="btn primary no-drag hidden" id="btn-resume-prompt" title="生成接续提示词并复制到剪贴板，粘进新对话即可继续">📋 复制接续提示</button>
+          <button class="btn no-drag hidden" id="btn-toggle-done" title="切换任务状态">✓ 标记完成</button>
+          <button class="btn no-drag" id="btn-open-url" title="打开原始对话">↗ 打开对话</button>
+          <button class="btn no-drag" id="btn-export" title="导出为 Word 文档（⌘⇧E）">W 导出 Word</button>
+          <button class="btn icon no-drag" id="btn-reveal" title="在 Finder 中显示">📁</button>
+          <button class="btn icon danger no-drag" id="btn-delete" title="删除（移到废纸篓）">🗑</button>
+        </div>
+        <div class="meta-form">
+          <input id="f-title" class="title-input" placeholder="标题" />
+          <div class="meta-row">
+            <label>来源</label>
+            <select id="f-source" class="field">
+              <option value="claude">Claude</option>
+              <option value="gpt">GPT</option>
+              <option value="gemini">Gemini</option>
+              <option value="other">其他</option>
+            </select>
+            <label style="width:auto">标签</label>
+            <input id="f-tags" class="field grow" placeholder="用逗号或空格分隔，如：python, 论文写作" />
+          </div>
+          <div class="meta-row">
+            <label>类型</label>
+            <div class="segmented">
+              <button id="kind-note" class="active">笔记</button>
+              <button id="kind-task">进行中的任务</button>
+            </div>
+            <div id="task-fields" class="task-fields hidden">
+              <label style="width:auto">状态</label>
+              <select id="f-status" class="field">
+                <option value="active">进行中</option>
+                <option value="done">已完成</option>
+              </select>
+              <label style="width:auto">限额恢复</label>
+              <input id="f-resume" type="datetime-local" class="field" />
+              <button class="btn small" id="btn-plus-limit" title="从现在起加上限额时长">+5h</button>
+              <button class="btn small" id="btn-clear-resume" title="清除提醒时间">清除</button>
+              <span class="status" id="countdown"></span>
+            </div>
+          </div>
+          <div class="meta-row">
+            <label>对话</label>
+            <input id="f-conversation" class="field grow" placeholder="来自哪次对话（可选）" />
+            <label style="width:auto">链接</label>
+            <input id="f-url" class="field grow" placeholder="https://…（可选）" />
+          </div>
+        </div>
+        <div class="editor-body">
+          <textarea id="f-content" class="hidden" placeholder="在这里粘贴或输入内容，支持 Markdown"></textarea>
+          <div id="preview" class="preview"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 设置 -->
+  <div id="settings-modal" class="modal-backdrop hidden">
+    <div class="modal">
+      <h2>设置</h2>
+      <div class="row">
+        <label>笔记保存文件夹</label>
+        <div class="inline">
+          <input id="s-dir" class="field grow" readonly />
+          <button class="btn" id="s-choose">选择…</button>
+          <button class="btn" id="s-open-dir">打开</button>
+        </div>
+        <div class="hint">每条笔记是一个独立的 Markdown 文件，可用 Obsidian、Typora 等直接打开，也可放进 iCloud 同步。</div>
+      </div>
+      <div class="row">
+        <label>使用限额时长（小时）</label>
+        <input id="s-limit" class="field" type="number" min="0.5" step="0.5" style="width:120px" />
+        <div class="hint">任务记录里点「+5h」时按这个时长计算恢复时间。GPT 目前是 5 小时。</div>
+      </div>
+      <div class="row">
+        <label>全局快捷键（快速收藏）</label>
+        <input id="s-shortcut" class="field grow" style="width:100%" placeholder="例如 CommandOrControl+Shift+S" />
+        <div class="hint">Electron 快捷键格式：CommandOrControl、Shift、Alt 加字母，用 + 连接。清空则不注册。</div>
+        <div class="hint" id="s-error" style="color: var(--danger)"></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="s-close">关闭</button>
+        <button class="btn primary" id="s-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
