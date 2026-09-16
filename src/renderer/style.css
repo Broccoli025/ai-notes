@@ -417,3 +417,40 @@ kbd {
 .check-row { display: flex; align-items: center; gap: 8px; padding: 10px 2px 0; color: var(--text-2); cursor: default; }
 .check-row input { -webkit-app-region: no-drag; }
 .segmented button.small { padding: 2px 8px; }
+
+/* ---------- 文档模式排版工具条 ---------- */
+.format-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: nowrap;
+  flex: none;
+  overflow: hidden;
+}
+.format-bar .spacer { flex: 1; }
+.format-bar .fmt-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; flex: none; }
+.fmt-btn {
+  height: 24px;
+  min-width: 26px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+.fmt-btn:hover { background: var(--bg-hover); border-color: var(--border); }
+.fmt-btn:active, .fmt-btn.on { background: var(--bg-active); }
+.fmt-block { height: 24px; font-size: 12px; }
+#fmt-hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* 可编辑的文档区 */
+.preview[contenteditable="true"] { outline: none; caret-color: var(--accent); }
+.preview[contenteditable="true"]:focus { box-shadow: inset 2px 0 0 var(--accent); }
+.preview[contenteditable="true"] .code-block pre code { cursor: text; }

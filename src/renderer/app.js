@@ -11,6 +11,7 @@ const state = {
   saveTimer: null,
   settings: null,
   kind: 'note', // 当前编辑笔记的类型
+  syncTimer: null, // 文档模式回写 Markdown 的防抖
   limitHours: 5,
 };
 
@@ -37,6 +38,8 @@ const el = {
   resume: $('#f-resume'),
   countdown: $('#countdown'),
   btnResumePrompt: $('#btn-resume-prompt'),
+  formatBar: $('#format-bar'),
+  fmtBlock: $('#fmt-block'),
   btnToggleDone: $('#btn-toggle-done'),
   preview: $('#preview'),
   status: $('#status'),
@@ -60,7 +63,7 @@ async function reload({ keepSelection = true } = {}) {
   }
   renderSidebar();
   renderList();
-  if (!state.dirty) renderEditor();
+  if (!state.dirty && !editorHasFocus()) renderEditor();
 }
 
 function filteredNotes() {
@@ -260,6 +263,7 @@ function formatDate(iso) {
 
 // ---------- 渲染：编辑区 ----------
 async function selectNote(id) {
+  if (state.syncTimer) syncFromDoc();
   if (state.dirty) await flushSave();
   state.selectedId = id;
   state.mode = 'preview';
@@ -314,34 +318,54 @@ function updateCountdown() {
 async function setKind(kind) {
   state.kind = kind;
   if (kind === 'task' && !el.content.value.trim()) {
+    // 先离开文档模式，避免随后的回写用空文档覆盖掉模板
+    if (state.mode !== 'edit') { state.mode = 'edit'; applyMode(); }
     el.content.value = await window.api.taskTemplate();
-    if (state.mode !== 'edit') setMode('edit');
   }
   applyKind();
   markDirty();
 }
 
 function applyMode() {
-  const edit = state.mode === 'edit';
+  const edit = state.mode === 'edit'; // edit = Markdown 源码，preview = 文档所见即所得
   el.modeEdit.classList.toggle('active', edit);
   el.modePreview.classList.toggle('active', !edit);
   el.content.classList.toggle('hidden', !edit);
   el.preview.classList.toggle('hidden', edit);
+  el.formatBar.classList.toggle('hidden', edit);
   if (!edit) {
-    el.preview.innerHTML = window.api.renderMarkdown(el.content.value);
-    // 外链交给系统浏览器
-    el.preview.querySelectorAll('a[href]').forEach((a) => {
-      a.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.api.openExternal(a.getAttribute('href'));
-      });
-    });
+    renderDocView();
   } else {
     el.content.focus();
   }
 }
 
+// 把 Markdown 渲染进可编辑的文档区
+function renderDocView() {
+  el.preview.innerHTML = window.api.renderMarkdown(el.content.value);
+  el.preview.setAttribute('contenteditable', 'true');
+  el.preview.spellcheck = false;
+}
+
+// 文档区内容回写成 Markdown
+function syncFromDoc() {
+  clearTimeout(state.syncTimer);
+  state.syncTimer = null;
+  if (state.mode !== 'preview') return;
+  const md = window.api.htmlToMarkdown(el.preview.innerHTML);
+  if (md === el.content.value) return;
+  el.content.value = md;
+  markDirty();
+}
+
+// 光标是否停在编辑区，用于避免外部刷新打断输入
+function editorHasFocus() {
+  const a = document.activeElement;
+  return a === el.content || el.preview.contains(a);
+}
+
 function setMode(mode) {
+  if (mode !== state.mode) syncFromDoc(); // 离开文档模式前先把改动回写成 Markdown
   state.mode = mode;
   applyMode();
 }
@@ -356,6 +380,7 @@ function markDirty() {
 
 async function flushSave() {
   clearTimeout(state.saveTimer);
+  if (state.syncTimer) syncFromDoc();
   if (!state.dirty || !state.selectedId) return;
   const payload = {
     id: state.selectedId,
@@ -542,8 +567,88 @@ for (const input of [el.title, el.source, el.tags, el.url, el.conversation, el.c
   input.addEventListener('input', markDirty);
   input.addEventListener('change', markDirty);
 }
-// 点击预览区直接进入编辑
-el.preview.addEventListener('dblclick', () => setMode('edit'));
+// ---------- 文档模式：像 Word 一样直接编辑 ----------
+
+// 输入后防抖回写 Markdown
+el.preview.addEventListener('input', () => {
+  clearTimeout(state.syncTimer);
+  state.syncTimer = setTimeout(() => { state.syncTimer = null; syncFromDoc(); }, 400);
+});
+
+// contenteditable 里链接不会自己跳转，手动交给系统浏览器
+el.preview.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href]');
+  if (a) {
+    e.preventDefault();
+    window.api.openExternal(a.getAttribute('href'));
+  }
+});
+
+// 粘贴时只取纯文本，避免把网页样式带进来
+el.preview.addEventListener('paste', (e) => {
+  const text = e.clipboardData.getData('text/plain');
+  if (text === undefined || text === null) return;
+  e.preventDefault();
+  document.execCommand('insertText', false, text);
+});
+
+function exec(cmd, value) {
+  el.preview.focus();
+  document.execCommand('styleWithCSS', false, false); // 生成 <b>/<i> 而不是 span 样式
+  document.execCommand(cmd, false, value);
+  syncFromDoc();
+  refreshFormatState();
+}
+
+// 工具条按钮高亮与当前段落样式同步
+function refreshFormatState() {
+  if (state.mode !== 'preview') return;
+  for (const btn of el.formatBar.querySelectorAll('.fmt-btn[data-cmd]')) {
+    const cmd = btn.dataset.cmd;
+    let on = false;
+    try { on = document.queryCommandState(cmd); } catch { on = false; }
+    btn.classList.toggle('on', on);
+  }
+  let block = 'p';
+  try {
+    const v = String(document.queryCommandValue('formatBlock') || '').toLowerCase();
+    if (['h1', 'h2', 'h3', 'blockquote', 'pre'].includes(v)) block = v;
+  } catch { /* 部分环境不支持查询 */ }
+  el.fmtBlock.value = block;
+}
+
+el.preview.addEventListener('keyup', refreshFormatState);
+el.preview.addEventListener('mouseup', refreshFormatState);
+
+for (const btn of el.formatBar.querySelectorAll('.fmt-btn[data-cmd]')) {
+  // mousedown 阻止默认，避免点击按钮时丢失文档里的选区
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
+  btn.addEventListener('click', () => exec(btn.dataset.cmd));
+}
+
+el.fmtBlock.addEventListener('change', () => {
+  const v = el.fmtBlock.value;
+  exec('formatBlock', v === 'p' ? '<p>' : `<${v}>`);
+});
+
+$('#fmt-code').addEventListener('mousedown', (e) => e.preventDefault());
+$('#fmt-code').addEventListener('click', () => {
+  const sel = window.getSelection();
+  const text = sel && !sel.isCollapsed ? sel.toString() : '';
+  if (!text) { el.status.textContent = '请先选中要变成代码的文字'; return; }
+  exec('insertHTML', `<code>${text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</code>`);
+});
+
+$('#fmt-link').addEventListener('mousedown', (e) => e.preventDefault());
+$('#fmt-link').addEventListener('click', () => {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) { el.status.textContent = '请先选中要加链接的文字'; return; }
+  const url = prompt('链接地址', 'https://');
+  if (url) exec('createLink', url);
+});
+
+$('#fmt-hr').addEventListener('mousedown', (e) => e.preventDefault());
+$('#fmt-hr').addEventListener('click', () => exec('insertHTML', '<hr>'));
 
 // ⌘N / ⌘F / ⌘E / ⌘, / ⌘⇧E 由应用菜单的快捷键统一处理，这里只处理 Esc
 document.addEventListener('keydown', (e) => {
@@ -576,6 +681,6 @@ window.api.getSettings().then((st) => {
   state.limitHours = Number(st.limitHours) || 5;
   $('#btn-plus-limit').textContent = `+${state.limitHours}h`;
 });
-window.addEventListener('beforeunload', () => { if (state.dirty) flushSave(); });
+window.addEventListener('beforeunload', () => { if (state.syncTimer) syncFromDoc(); if (state.dirty) flushSave(); });
 
 reload();

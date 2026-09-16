@@ -47,15 +47,15 @@
       <div id="editor" class="hidden" style="display: flex; flex-direction: column; height: 100%;">
         <div class="editor-toolbar drag">
           <div class="segmented no-drag">
-            <button id="mode-edit">编辑</button>
-            <button id="mode-preview" class="active">预览</button>
+            <button id="mode-edit" title="编辑 Markdown 源码">Markdown</button>
+            <button id="mode-preview" class="active" title="像 Word 一样直接在排版后的文档上编辑">文档</button>
           </div>
           <span class="status" id="status"></span>
           <div class="spacer"></div>
           <button class="btn primary no-drag hidden" id="btn-resume-prompt" title="生成接续提示词并复制到剪贴板，粘进新对话即可继续">📋 复制接续提示</button>
           <button class="btn no-drag hidden" id="btn-toggle-done" title="切换任务状态">✓ 标记完成</button>
           <button class="btn no-drag" id="btn-open-url" title="打开原始对话">↗ 打开对话</button>
-          <button class="btn no-drag" id="btn-export" title="导出为 Word 文档（⌘⇧E）">W 导出 Word</button>
+          <button class="btn no-drag" id="btn-export" title="导出为 Word 文档（⌘⇧E）">导出 Word</button>
           <button class="btn icon no-drag" id="btn-reveal" title="在 Finder 中显示">📁</button>
           <button class="btn icon danger no-drag" id="btn-delete" title="删除（移到废纸篓）">🗑</button>
         </div>
@@ -97,6 +97,32 @@
             <label style="width:auto">链接</label>
             <input id="f-url" class="field grow" placeholder="https://…（可选）" />
           </div>
+        </div>
+        <div class="format-bar" id="format-bar">
+          <select class="field fmt-block" id="fmt-block" title="段落样式">
+            <option value="p">正文</option>
+            <option value="h1">标题 1</option>
+            <option value="h2">标题 2</option>
+            <option value="h3">标题 3</option>
+            <option value="blockquote">引用</option>
+            <option value="pre">代码块</option>
+          </select>
+          <span class="fmt-sep"></span>
+          <button class="fmt-btn" data-cmd="bold" title="粗体 ⌘B"><b>B</b></button>
+          <button class="fmt-btn" data-cmd="italic" title="斜体 ⌘I"><i>I</i></button>
+          <button class="fmt-btn" data-cmd="strikeThrough" title="删除线"><s>S</s></button>
+          <button class="fmt-btn" id="fmt-code" title="行内代码">&lt;/&gt;</button>
+          <span class="fmt-sep"></span>
+          <button class="fmt-btn" data-cmd="insertUnorderedList" title="无序列表">• 列表</button>
+          <button class="fmt-btn" data-cmd="insertOrderedList" title="有序列表">1. 列表</button>
+          <button class="fmt-btn" data-cmd="outdent" title="减少缩进">⇤</button>
+          <button class="fmt-btn" data-cmd="indent" title="增加缩进">⇥</button>
+          <span class="fmt-sep"></span>
+          <button class="fmt-btn" id="fmt-link" title="插入链接">🔗</button>
+          <button class="fmt-btn" id="fmt-hr" title="分隔线">—</button>
+          <button class="fmt-btn" data-cmd="removeFormat" title="清除格式">✕ 格式</button>
+          <span class="spacer"></span>
+          <span class="status" id="fmt-hint">直接在下方文档上编辑，内容仍以 Markdown 保存</span>
         </div>
         <div class="editor-body">
           <textarea id="f-content" class="hidden" placeholder="在这里粘贴或输入内容，支持 Markdown"></textarea>

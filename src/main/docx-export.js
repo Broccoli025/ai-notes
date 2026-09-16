@@ -1,4 +1,4 @@
-// Markdown → Word (.docx) 转换。基于 marked 的词法分析结果构建 docx 文档，无需外部依赖（不需要 pandoc）。
+// Markdown → Word (.docx) 转换。基于 marked 的词法分析结果构建 docx 文档，不依赖 pandoc。
 const { marked } = require('marked');
 const {
   Document,
@@ -9,6 +9,7 @@ const {
   Table,
   TableRow,
   TableCell,
+  TableLayoutType,
   WidthType,
   BorderStyle,
   ShadingType,
@@ -16,15 +17,28 @@ const {
   LevelFormat,
   AlignmentType,
   PageBreak,
+  VerticalAlign,
+  convertMillimetersToTwip,
 } = require('docx');
 
-const FONT_BODY = 'Songti SC'; // 宋体；Word 找不到时会自动回退
-const FONT_LATIN = 'Calibri';
-const FONT_MONO = 'Menlo';
-const CODE_BG = 'F2F2F2';
-const QUOTE_COLOR = '595959';
-const MAX_ORDERED_LISTS = 200;
+// ---------- 排版常量 ----------
+// 中文排版惯例：正文宋体，标题黑体，西文分别配 Times New Roman / Arial。
+const FONT_BODY = { ascii: 'Times New Roman', hAnsi: 'Times New Roman', eastAsia: '宋体' };
+const FONT_HEAD = { ascii: 'Arial', hAnsi: 'Arial', eastAsia: '黑体' };
+const FONT_MONO = { ascii: 'Consolas', hAnsi: 'Consolas', eastAsia: '宋体' };
 
+const SIZE_BODY = 24; // 半磅，24 = 12pt（小四）
+const SIZE_META = 18; // 9pt
+const SIZE_CODE = 20; // 10pt
+const LINE = 360; // 1.5 倍行距（240 为单倍）
+
+const COLOR_TEXT = '000000';
+const COLOR_MUTED = '666666';
+const CODE_BG = 'F6F8FA';
+const CODE_BORDER = 'D9DEE4';
+const RULE_COLOR = 'CCCCCC';
+
+const MAX_ORDERED_LISTS = 200;
 const SOURCE_LABEL = { claude: 'Claude', gpt: 'GPT', gemini: 'Gemini', other: '其他' };
 
 // ---------- 对外接口 ----------
@@ -46,21 +60,25 @@ async function notesToDocx(notes, { includeMeta = true } = {}) {
     children.push(...markdownToBlocks(note.content || '', ctx));
   });
 
+  // docx 规定文档不能以表格结尾，补一个空段落
+  children.push(new Paragraph({ text: '' }));
+
   const doc = new Document({
     creator: 'AI Notes',
     title: notes.length === 1 ? notes[0].title : 'AI Notes 导出',
     styles: {
       default: {
         document: {
-          run: { font: { ascii: FONT_LATIN, hAnsi: FONT_LATIN, eastAsia: FONT_BODY }, size: 22 }, // 11pt
-          paragraph: { spacing: { after: 120, line: 300 } },
+          run: { font: FONT_BODY, size: SIZE_BODY, color: COLOR_TEXT },
+          paragraph: { spacing: { after: 120, line: LINE, lineRule: 'auto' } },
         },
-        // 覆盖 Word 内置标题样式，导出后在 Word 里仍可用「样式」面板统一调整
-        title: { run: { size: 36, bold: true, color: '1D1D1F' }, paragraph: { spacing: { before: 0, after: 240 } } },
-        heading1: { run: { size: 32, bold: true, color: '1D1D1F' }, paragraph: { spacing: { before: 360, after: 160 } } },
-        heading2: { run: { size: 28, bold: true, color: '1D1D1F' }, paragraph: { spacing: { before: 300, after: 120 } } },
-        heading3: { run: { size: 24, bold: true, color: '1D1D1F' }, paragraph: { spacing: { before: 240, after: 100 } } },
-        heading4: { run: { size: 22, bold: true, color: '1D1D1F' }, paragraph: { spacing: { before: 200, after: 80 } } },
+        title: headingStyle(36, 0, 240, AlignmentType.CENTER),
+        heading1: headingStyle(32, 320, 160),
+        heading2: headingStyle(28, 280, 140),
+        heading3: headingStyle(26, 240, 120),
+        heading4: headingStyle(24, 200, 100),
+        heading5: headingStyle(24, 180, 90),
+        heading6: headingStyle(24, 160, 80),
       },
       paragraphStyles: [
         {
@@ -69,12 +87,9 @@ async function notesToDocx(notes, { includeMeta = true } = {}) {
           basedOn: 'Normal',
           next: 'SourceCode',
           quickFormat: true,
-          run: { font: { ascii: FONT_MONO, hAnsi: FONT_MONO, eastAsia: FONT_MONO }, size: 18 },
-          paragraph: {
-            shading: { type: ShadingType.CLEAR, fill: CODE_BG, color: 'auto' },
-            spacing: { before: 0, after: 0, line: 276 },
-            indent: { left: 200, right: 200 },
-          },
+          run: { font: FONT_MONO, size: SIZE_CODE, color: COLOR_TEXT },
+          // 代码块整体由外层表格提供底色边框，这里只管行内紧凑
+          paragraph: { spacing: { before: 0, after: 0, line: 260, lineRule: 'auto' }, contextualSpacing: true },
         },
         {
           id: 'Quote',
@@ -82,63 +97,107 @@ async function notesToDocx(notes, { includeMeta = true } = {}) {
           basedOn: 'Normal',
           next: 'Normal',
           quickFormat: true,
-          run: { color: QUOTE_COLOR },
+          run: { color: COLOR_MUTED },
           paragraph: {
-            indent: { left: 480 },
-            border: { left: { style: BorderStyle.SINGLE, size: 18, color: 'BBBBBB', space: 12 } },
+            indent: { left: 420 },
+            spacing: { before: 60, after: 60, line: LINE, lineRule: 'auto' },
+            border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 10 } },
           },
+        },
+        {
+          id: 'NoteMeta',
+          name: 'Note Meta',
+          basedOn: 'Normal',
+          next: 'Normal',
+          run: { size: SIZE_META, color: COLOR_MUTED },
+          paragraph: {
+            spacing: { before: 0, after: 240, line: 240, lineRule: 'auto' },
+            border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: RULE_COLOR, space: 8 } },
+          },
+        },
+        {
+          id: 'ListBody',
+          name: 'List Body',
+          basedOn: 'Normal',
+          next: 'ListBody',
+          // 列表项之间不留额外间距，避免 Word 里每条都隔一行
+          paragraph: { spacing: { before: 0, after: 0, line: LINE, lineRule: 'auto' }, contextualSpacing: true },
+        },
+        {
+          id: 'TableText',
+          name: 'Table Text',
+          basedOn: 'Normal',
+          next: 'TableText',
+          paragraph: { spacing: { before: 0, after: 0, line: 260, lineRule: 'auto' } },
         },
       ],
     },
-    numbering: { config: numberingConfig(ctx) },
-    sections: [{ properties: {}, children }],
+    numbering: { config: numberingConfig() },
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: {
+              top: convertMillimetersToTwip(25.4),
+              bottom: convertMillimetersToTwip(25.4),
+              left: convertMillimetersToTwip(31.8),
+              right: convertMillimetersToTwip(31.8),
+            },
+          },
+        },
+        children,
+      },
+    ],
   });
 
   return Packer.toBuffer(doc);
 }
 
+function headingStyle(size, before, after, alignment) {
+  return {
+    run: { font: FONT_HEAD, size, bold: true, color: COLOR_TEXT },
+    paragraph: {
+      spacing: { before, after, line: LINE, lineRule: 'auto' },
+      alignment,
+      keepNext: true, // 标题不落在页尾单独一行
+      keepLines: true,
+    },
+  };
+}
+
 function metaParagraph(note) {
-  const parts = [];
-  parts.push(new TextRun({ text: `来源：${SOURCE_LABEL[note.source] || note.source || '其他'}`, color: QUOTE_COLOR, size: 18 }));
-  if (note.tags && note.tags.length) {
-    parts.push(new TextRun({ text: `　标签：${note.tags.join('、')}`, color: QUOTE_COLOR, size: 18 }));
-  }
-  if (note.conversation) {
-    parts.push(new TextRun({ text: `　对话：${note.conversation}`, color: QUOTE_COLOR, size: 18 }));
-  }
-  if (note.kind === 'task') {
-    parts.push(new TextRun({ text: `　任务：${note.status === 'done' ? '已完成' : '进行中'}`, color: QUOTE_COLOR, size: 18 }));
-  }
-  if (note.created) {
-    parts.push(new TextRun({ text: `　${new Date(note.created).toLocaleDateString('zh-CN')}`, color: QUOTE_COLOR, size: 18 }));
-  }
+  const bits = [];
+  bits.push(`来源：${SOURCE_LABEL[note.source] || note.source || '其他'}`);
+  if (note.tags && note.tags.length) bits.push(`标签：${note.tags.join('、')}`);
+  if (note.conversation) bits.push(`对话：${note.conversation}`);
+  if (note.kind === 'task') bits.push(`任务：${note.status === 'done' ? '已完成' : '进行中'}`);
+  if (note.created) bits.push(new Date(note.created).toLocaleDateString('zh-CN'));
+
+  const children = [new TextRun({ text: bits.join('　·　') })];
   if (note.url) {
-    parts.push(new TextRun({ text: '　', size: 18 }));
-    parts.push(
+    children.push(new TextRun({ text: '　·　' }));
+    children.push(
       new ExternalHyperlink({
         link: note.url,
-        children: [new TextRun({ text: '原始对话', style: 'Hyperlink', size: 18 })],
+        children: [new TextRun({ text: '原始对话', style: 'Hyperlink' })],
       })
     );
   }
-  return new Paragraph({
-    children: parts,
-    spacing: { after: 240 },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'DDDDDD', space: 6 } },
-  });
+  return new Paragraph({ style: 'NoteMeta', children });
 }
 
-// 有序列表每个实例独立编号：预先声明足够多的 reference。
+// 有序列表每个实例独立编号，避免第二个列表接着上一个continue计数
 function numberingConfig() {
+  const indentFor = (level) => ({ paragraph: { indent: { left: 480 * (level + 1), hanging: 360 } } });
   const config = [
     {
       reference: 'bullets',
       levels: [0, 1, 2, 3].map((level) => ({
         level,
         format: LevelFormat.BULLET,
-        text: ['•', '◦', '▪', '•'][level],
+        text: ['●', '○', '▪', '·'][level],
         alignment: AlignmentType.LEFT,
-        style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } },
+        style: indentFor(level),
       })),
     },
   ];
@@ -150,7 +209,7 @@ function numberingConfig() {
         format: [LevelFormat.DECIMAL, LevelFormat.LOWER_LETTER, LevelFormat.LOWER_ROMAN, LevelFormat.DECIMAL][level],
         text: `%${level + 1}.`,
         alignment: AlignmentType.LEFT,
-        style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } },
+        style: indentFor(level),
       })),
     });
   }
@@ -164,7 +223,7 @@ function markdownToBlocks(markdown, ctx) {
   return tokensToBlocks(tokens, ctx, {});
 }
 
-/** opts: { indent, quote, numbering } 会向下传递 */
+/** opts: { indent, quote, numbering, listLevel } 向下传递 */
 function tokensToBlocks(tokens, ctx, opts) {
   const out = [];
   for (const tok of tokens) {
@@ -174,9 +233,14 @@ function tokensToBlocks(tokens, ctx, opts) {
       case 'heading':
         out.push(
           new Paragraph({
-            heading: [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6][
-              Math.min(tok.depth, 6) - 1
-            ],
+            heading: [
+              HeadingLevel.HEADING_1,
+              HeadingLevel.HEADING_2,
+              HeadingLevel.HEADING_3,
+              HeadingLevel.HEADING_4,
+              HeadingLevel.HEADING_5,
+              HeadingLevel.HEADING_6,
+            ][Math.min(tok.depth, 6) - 1],
             children: inlineRuns(tok.tokens || [], {}),
           })
         );
@@ -189,25 +253,28 @@ function tokensToBlocks(tokens, ctx, opts) {
         out.push(...codeBlock(tok.text, opts));
         break;
       case 'blockquote':
-        out.push(...tokensToBlocks(tok.tokens || [], ctx, { ...opts, quote: true, indent: (opts.indent || 0) + 1 }));
+        out.push(...tokensToBlocks(tok.tokens || [], ctx, { ...opts, quote: true }));
         break;
       case 'list':
         out.push(...listBlocks(tok, ctx, opts));
         break;
       case 'table':
-        out.push(tableBlock(tok), new Paragraph({ text: '' }));
+        out.push(tableBlock(tok, opts), spacerParagraph());
         break;
       case 'hr':
         out.push(
           new Paragraph({
             children: [],
-            border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'CCCCCC', space: 1 } },
+            border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: RULE_COLOR, space: 1 } },
             spacing: { before: 120, after: 240 },
           })
         );
         break;
       case 'html':
-        out.push(paragraph([new TextRun({ text: stripHtml(tok.text) })], opts));
+        {
+          const text = stripHtml(tok.text);
+          if (text.trim()) out.push(paragraph([new TextRun({ text })], opts));
+        }
         break;
       default:
         if (tok.tokens) out.push(...tokensToBlocks(tok.tokens, ctx, opts));
@@ -219,24 +286,38 @@ function tokensToBlocks(tokens, ctx, opts) {
 
 function paragraph(children, opts) {
   const props = { children };
-  if (opts.numbering) props.numbering = opts.numbering;
-  else if (opts.indent) props.indent = { left: 720 * opts.indent };
+  if (opts.numbering) {
+    props.numbering = opts.numbering;
+    props.style = 'ListBody';
+  } else if (opts.indent) {
+    props.indent = { left: 480 * opts.indent };
+  }
   if (opts.quote) props.style = 'Quote';
   return new Paragraph(props);
 }
 
+// 表格之间必须隔一个空段落，否则 Word 会把相邻表格并成一个
+function spacerParagraph() {
+  return new Paragraph({ text: '', spacing: { before: 0, after: 0, line: 120, lineRule: 'auto' } });
+}
+
+// 代码块整体放进一个单元格表格：底色和边框连成一片，行与行之间没有缝隙
 function codeBlock(text, opts) {
-  const lines = String(text).replace(/\n$/, '').split('\n');
-  return lines.map(
-    (line, i) =>
-      new Paragraph({
-        style: 'SourceCode',
-        children: [new TextRun({ text: line || ' ' })],
-        indent: opts.indent ? { left: 720 * opts.indent + 200, right: 200 } : undefined,
-        spacing: { before: i === 0 ? 120 : 0, after: i === lines.length - 1 ? 160 : 0 },
-        keepNext: i < lines.length - 1,
-      })
-  );
+  const lines = String(text).replace(/\n+$/, '').split('\n');
+  const noBorder = { style: BorderStyle.SINGLE, size: 4, color: CODE_BORDER };
+  const cell = new TableCell({
+    shading: { type: ShadingType.CLEAR, fill: CODE_BG, color: 'auto' },
+    borders: { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder },
+    margins: { top: 120, bottom: 120, left: 180, right: 180 },
+    children: lines.map((line) => new Paragraph({ style: 'SourceCode', children: [new TextRun({ text: line || ' ' })] })),
+  });
+  const table = new Table({
+    rows: [new TableRow({ children: [cell] })],
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.FIXED,
+    indent: opts.indent || opts.numbering ? { size: 480, type: WidthType.DXA } : undefined,
+  });
+  return [table, spacerParagraph()];
 }
 
 function listBlocks(list, ctx, opts) {
@@ -250,7 +331,6 @@ function listBlocks(list, ctx, opts) {
   for (const item of list.items) {
     const numbering = { reference, level: Math.min(level, 3) };
     const inner = item.tokens || [];
-    // 第一段带项目符号，其余段落 / 子列表跟随
     let first = true;
     for (const tok of inner) {
       if (tok.type === 'list') {
@@ -261,6 +341,7 @@ function listBlocks(list, ctx, opts) {
         out.push(paragraph(runs, { ...opts, numbering, indent: undefined }));
         first = false;
       } else {
+        // 列表项里的代码块、引用等，缩进到与项目文字对齐
         out.push(...tokensToBlocks([tok], ctx, { ...opts, numbering: undefined, indent: level + 1 }));
       }
     }
@@ -269,24 +350,48 @@ function listBlocks(list, ctx, opts) {
   return out;
 }
 
-function tableBlock(tok) {
-  const border = { style: BorderStyle.SINGLE, size: 4, color: 'BFBFBF' };
-  const borders = { top: border, bottom: border, left: border, right: border };
-  const cell = (cellTok, isHeader) =>
+function tableBlock(tok, opts) {
+  const line = { style: BorderStyle.SINGLE, size: 4, color: '999999' };
+  const borders = { top: line, bottom: line, left: line, right: line };
+  const colCount = tok.header.length || 1;
+  const colWidth = Math.floor(100 / colCount);
+
+  const alignOf = (i) => {
+    const a = (tok.align || [])[i];
+    if (a === 'center') return AlignmentType.CENTER;
+    if (a === 'right') return AlignmentType.RIGHT;
+    return AlignmentType.LEFT;
+  };
+
+  const cell = (cellTok, i, isHeader) =>
     new TableCell({
       borders,
+      width: { size: colWidth, type: WidthType.PERCENTAGE },
+      verticalAlign: VerticalAlign.CENTER,
       shading: isHeader ? { type: ShadingType.CLEAR, fill: 'EFEFEF', color: 'auto' } : undefined,
-      margins: { top: 60, bottom: 60, left: 100, right: 100 },
+      margins: { top: 80, bottom: 80, left: 120, right: 120 },
       children: [
         new Paragraph({
+          style: 'TableText',
+          alignment: alignOf(i),
           children: inlineRuns(cellTok.tokens || [{ type: 'text', text: cellTok.text }], isHeader ? { bold: true } : {}),
-          spacing: { after: 0 },
         }),
       ],
     });
-  const rows = [new TableRow({ tableHeader: true, children: tok.header.map((c) => cell(c, true)) })];
-  for (const r of tok.rows) rows.push(new TableRow({ children: r.map((c) => cell(c, false)) }));
-  return new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } });
+
+  const rows = [
+    new TableRow({ tableHeader: true, cantSplit: true, children: tok.header.map((c, i) => cell(c, i, true)) }),
+  ];
+  for (const r of tok.rows) {
+    rows.push(new TableRow({ cantSplit: true, children: r.map((c, i) => cell(c, i, false)) }));
+  }
+
+  return new Table({
+    rows,
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.FIXED,
+    indent: opts.indent ? { size: 480 * opts.indent, type: WidthType.DXA } : undefined,
+  });
 }
 
 // ---------- 行内元素 ----------
@@ -314,7 +419,7 @@ function inlineRuns(tokens, style) {
           new TextRun({
             text: decode(tok.text),
             font: FONT_MONO,
-            size: 19,
+            size: SIZE_CODE,
             shading: { type: ShadingType.CLEAR, fill: CODE_BG, color: 'auto' },
             ...style,
           })
@@ -329,13 +434,16 @@ function inlineRuns(tokens, style) {
         );
         break;
       case 'image':
-        runs.push(new TextRun({ text: `[图片${tok.text ? '：' + tok.text : ''}]`, color: QUOTE_COLOR, ...style }));
+        runs.push(new TextRun({ text: `［图片${tok.text ? '：' + tok.text : ''}］`, color: COLOR_MUTED, ...style }));
         break;
       case 'br':
         runs.push(new TextRun({ text: '', break: 1 }));
         break;
       case 'html':
-        runs.push(new TextRun({ text: stripHtml(tok.text), ...style }));
+        {
+          const text = stripHtml(tok.text);
+          if (text) runs.push(new TextRun({ text, ...style }));
+        }
         break;
       default:
         if (tok.tokens) runs.push(...inlineRuns(tok.tokens, style));
@@ -347,11 +455,11 @@ function inlineRuns(tokens, style) {
 
 function decode(s) {
   return String(s || '')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
 }
 
 function stripHtml(s) {
